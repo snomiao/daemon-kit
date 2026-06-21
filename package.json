@@ -1,0 +1,24 @@
+{
+  "name": "@snomiao/daemon-kit",
+  "version": "0.1.0",
+  "description": "Cross-project daemon helpers for codehost & agent-yes: pm2 process management (hidden launch, exp-backoff, login auto-start), TEMP/TMP normalization, and port-bind retry on Windows.",
+  "type": "module",
+  "license": "MIT",
+  "author": "snomiao",
+  "repository": { "type": "git", "url": "git+https://github.com/snomiao/daemon-kit.git" },
+  "keywords": ["pm2", "daemon", "windows", "windowsHide", "exp-backoff", "temp", "EADDRINUSE", "codehost", "agent-yes"],
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "prepublishOnly": "bun run build"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.0",
+    "typescript": "^5"
+  }
+}
