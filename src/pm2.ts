@@ -75,18 +75,25 @@ function pm2(args: string[], opts: SpawnSyncOptions = {}) {
 }
 
 /**
- * Start (replacing any same-named instance) a daemon, launched hidden so no
- * window appears, with exponential restart backoff, and persist the process list
- * (`pm2 save`). Returns true once pm2 reports the process online.
+ * Start (replacing any same-named instance) a daemon with exponential restart
+ * backoff, and persist the process list (`pm2 save`). On Windows the launch is
+ * routed through a hidden VBScript launcher so no console window flashes; off
+ * Windows there's no such problem, so pm2 is started directly. Returns true once
+ * pm2 reports the process online.
  */
 export function pm2Start(spec: DaemonSpec): boolean {
   const entry = pm2Entry();
   if (!entry) return false;
   const backoff = String(spec.expBackoffMs ?? 200);
 
+  // Replace any same-named instance: `pm2 start <name>` errors ("Script already
+  // launched") if it already exists, so delete first. Best-effort; a missing
+  // name just no-ops.
+  pm2(["delete", spec.name], { stdio: "ignore" });
+
   // `--interpreter none` execs the script directly with the args after `--`.
-  const start = [
-    process.execPath, entry, "start", spec.script,
+  const startArgs = [
+    "start", spec.script,
     "--name", spec.name,
     "--cwd", spec.cwd,
     "--interpreter", "none",
@@ -95,11 +102,26 @@ export function pm2Start(spec: DaemonSpec): boolean {
     "--exp-backoff-restart-delay", backoff,
     "--", ...spec.args,
   ];
-  const save = [process.execPath, entry, "save", "--force"];
-  runHidden([start, save], spec.name, spec.launcherDir ?? defaultLauncherDir());
 
-  // pm2 start is synchronous (the hidden launcher waits), so liveness is the
-  // source of truth — more reliable than the launcher's exit code.
+  if (process.platform === "win32") {
+    // Hidden VBScript launcher: neither the pm2 God daemon nor its fork pops a
+    // console window (windowsHide alone isn't enough for the detached daemon).
+    runHidden(
+      [
+        [process.execPath, entry, ...startArgs],
+        [process.execPath, entry, "save", "--force"],
+      ],
+      spec.name,
+      spec.launcherDir ?? defaultLauncherDir(),
+    );
+  } else {
+    // POSIX: no console-window problem — start pm2 directly, then persist.
+    pm2(startArgs, { stdio: "ignore" });
+    pm2(["save", "--force"], { stdio: "ignore" });
+  }
+
+  // pm2 start is synchronous, so liveness is the source of truth — more reliable
+  // than the launcher's / spawn's exit code.
   return pm2Online(spec.name);
 }
 

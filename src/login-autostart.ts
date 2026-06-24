@@ -4,14 +4,17 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { pm2Entry, quoteCmd } from "./pm2.js";
 
-// Windows login auto-start for pm2-managed daemons. pm2 core has no Windows
-// startup integration (`pm2 startup` errors "Init system not found"), so we
-// persist the process list and add a per-user HKCU\…\Run entry that runs
-// `pm2 resurrect` *hidden* at login. No admin required; fully reversible.
+// Login/boot auto-start for pm2-managed daemons.
 //
-// Note: on a locked-down host where Controlled Folder Access blocks Startup-menu
-// writes and `schtasks /create` needs elevation, this HKCU Run approach is the
-// one mechanism that still works without elevation.
+//   - Windows: pm2 core has no startup integration (`pm2 startup` errors "Init
+//     system not found"), so we persist the process list and add a per-user
+//     HKCU\…\Run entry that runs `pm2 resurrect` *hidden* at login. No admin
+//     required; fully reversible. On a locked-down host where Controlled Folder
+//     Access blocks Startup-menu writes and `schtasks /create` needs elevation,
+//     this HKCU Run approach is the one mechanism that still works unelevated.
+//   - POSIX: pm2 has native support — `pm2 save` + `pm2 startup` wire the
+//     platform init (systemd/launchd). `pm2 startup` may print a one-off sudo
+//     command to finish enabling on some distros; this is best-effort.
 
 const RUN_KEY = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 
@@ -20,14 +23,20 @@ function launcherDir(custom?: string): string {
 }
 
 /**
- * Enable login auto-start: `pm2 save` then a hidden HKCU Run entry that runs
- * `pm2 resurrect` at login. `valueName` is the Run value (use a per-tool name,
- * e.g. "codehost" / "agent-yes"). Returns true on success; no-op off Windows.
+ * Enable login/boot auto-start. Windows: `pm2 save` then a hidden HKCU Run entry
+ * that runs `pm2 resurrect` at login. POSIX: `pm2 save` + `pm2 startup` (pm2's
+ * native init integration). `valueName` is the per-tool name (e.g. "codehost" /
+ * "agent-yes"); on POSIX it's unused. Returns true on success.
  */
 export function enablePm2LoginAutostart(valueName: string, dir?: string): boolean {
-  if (process.platform !== "win32") return false;
   const entry = pm2Entry();
   if (!entry) return false;
+
+  if (process.platform !== "win32") {
+    // POSIX: persist the list, then let pm2 wire the platform init.
+    if (spawnSync(process.execPath, [entry, "save", "--force"]).status !== 0) return false;
+    return spawnSync(process.execPath, [entry, "startup"]).status === 0;
+  }
 
   // Persist the current process list so `pm2 resurrect` has something to restore.
   if (spawnSync(process.execPath, [entry, "save", "--force"], { windowsHide: true }).status !== 0) return false;
@@ -45,9 +54,17 @@ export function enablePm2LoginAutostart(valueName: string, dir?: string): boolea
     .status === 0;
 }
 
-/** Remove the login auto-start Run entry. Returns true if removed (or absent). */
+/**
+ * Remove login/boot auto-start. Windows: delete the HKCU Run entry. POSIX:
+ * `pm2 unstartup` (best-effort; may print a sudo command). Returns true if
+ * removed or already absent.
+ */
 export function disablePm2LoginAutostart(valueName: string): boolean {
-  if (process.platform !== "win32") return false;
+  if (process.platform !== "win32") {
+    const entry = pm2Entry();
+    if (!entry) return false;
+    return spawnSync(process.execPath, [entry, "unstartup"]).status === 0;
+  }
   const r = spawnSync("reg", ["delete", RUN_KEY, "/v", valueName, "/f"], { windowsHide: true });
   return r.status === 0 || /cannot find/i.test(String(r.stderr ?? ""));
 }

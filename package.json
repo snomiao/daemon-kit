@@ -1,7 +1,7 @@
 {
   "name": "@snomiao/daemon-kit",
-  "version": "0.1.0",
-  "description": "Cross-project daemon helpers for codehost & agent-yes: pm2 process management (hidden launch, exp-backoff, login auto-start), TEMP/TMP normalization, and port-bind retry on Windows.",
+  "version": "0.2.0",
+  "description": "Cross-project daemon helpers for codehost & agent-yes: cross-platform pm2 process management (hidden launch on Windows, exp-backoff, login/boot auto-start), TEMP/TMP normalization, and port-bind retry with opt-in stale-holder reclaim.",
   "type": "module",
   "license": "MIT",
   "author": "snomiao",
