@@ -13,12 +13,13 @@
   "files": ["dist"],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsgo --noEmit",
     "test": "bun test",
     "prepublishOnly": "bun run build"
   },
   "devDependencies": {
     "@types/bun": "^1.3.0",
+    "@typescript/native-preview": "^7.0.0-dev.20260124.1",
     "typescript": "^5"
   }
 }
