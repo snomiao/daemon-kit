@@ -36,6 +36,11 @@ export interface BindRetryOptions {
      * processes. Required to recover the inherited-socket case (where the netstat
      * owner pid is dead and the real holder is a differently-pid'd orphan). Without
      * it, only the live netstat owner is killed.
+     *
+     * Make it SPECIFIC (e.g. the daemon's script path plus a distinctive arg).
+     * Matches are killed one at a time and stop once the port frees, so a loose
+     * signature kills the minimum — but a too-broad one can still catch an
+     * unrelated process that happens to match AND hold the port.
      */
     signature?: string | RegExp;
     /** Override the reclaim implementation (tests). Defaults to freeStalePort. */
@@ -78,28 +83,52 @@ export async function bindWithRetry<T>(bind: () => T | Promise<T>, opts: BindRet
   }
 }
 
+/** Injectable seams for freeStalePort (real OS calls by default; for tests). */
+export interface FreeStalePortDeps {
+  /** PIDs currently LISTENING on the port (default: the OS connection table). */
+  listeners?: (port: number) => number[];
+  /** PIDs whose full command line matches the signature (default: OS query). */
+  candidates?: (signature: string | RegExp) => number[];
+  /** Terminate a PID (default: taskkill on Windows / SIGKILL on POSIX). */
+  kill?: (pid: number) => void;
+  /** Sleep between kill + re-check (default: real timer). */
+  sleep?: (ms: number) => Promise<void>;
+}
+
 /**
  * Free a port held by a stale/orphaned holder. Two phases:
- *   1. Kill the port's current LISTEN owner (per the OS connection table). Handles
- *      a live-but-stuck previous instance.
- *   2. If `signature` is given and the port is STILL held, kill processes whose
- *      command line matches `signature` — the inherited-socket case, where the
- *      netstat owner pid is already dead and the real holder is a different pid.
- * Best-effort and DESTRUCTIVE; intended for a daemon reclaiming its own port.
+ *   1. Kill the port's current LISTEN owner (per the OS connection table) — a
+ *      live-but-stuck previous instance.
+ *   2. If `signature` is given and the port is STILL held, fall back to a
+ *      command-line match — the inherited-socket case, where the netstat owner
+ *      pid is already dead and the real holder is a *different* pid. Candidates
+ *      are killed ONE AT A TIME, re-checking the port after each, and we stop the
+ *      instant it frees — so even a loose `signature` only ever kills the minimum
+ *      needed, never every unrelated match.
+ * Best-effort and DESTRUCTIVE; intended for a daemon reclaiming its OWN port.
  */
 export async function freeStalePort(
   port: number,
   signature?: string | RegExp,
-  sleep: (ms: number) => Promise<void> = realSleep,
+  deps: FreeStalePortDeps = {},
 ): Promise<void> {
-  // Phase 1 — kill the live netstat/connection-table owner.
-  for (const pid of listenerPids(port)) killPid(pid);
+  const listeners = deps.listeners ?? listenerPids;
+  const candidates = deps.candidates ?? pidsByCommandLine;
+  const kill = deps.kill ?? killPid;
+  const sleep = deps.sleep ?? realSleep;
+
+  // Phase 1 — kill the live connection-table owner.
+  for (const pid of listeners(port)) kill(pid);
   await sleep(250);
 
-  // Phase 2 — inherited-socket orphan: owner pid is dead, real holder differs.
-  if (signature && listenerPids(port).length > 0) {
-    for (const pid of pidsByCommandLine(signature)) killPid(pid);
-    await sleep(250);
+  // Phase 2 — inherited-socket orphan: kill matches incrementally, stopping as
+  // soon as the port is released (minimises collateral from a loose signature).
+  if (signature && listeners(port).length > 0) {
+    for (const pid of candidates(signature)) {
+      if (listeners(port).length === 0) break; // freed by a prior kill — stop
+      kill(pid);
+      await sleep(250);
+    }
   }
 }
 

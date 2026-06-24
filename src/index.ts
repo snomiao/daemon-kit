@@ -10,4 +10,4 @@
 export { expandWinVars, normalizeTempEnv } from "./temp-env.js";
 export { type DaemonSpec, pm2Available, pm2Delete, pm2Entry, pm2Online, pm2Start, quoteCmd } from "./pm2.js";
 export { disablePm2LoginAutostart, enablePm2LoginAutostart } from "./login-autostart.js";
-export { type BindRetryOptions, bindWithRetry, freeStalePort } from "./port.js";
+export { type BindRetryOptions, bindWithRetry, type FreeStalePortDeps, freeStalePort } from "./port.js";
