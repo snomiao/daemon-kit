@@ -55,16 +55,16 @@ export function enablePm2LoginAutostart(valueName: string, dir?: string): boolea
 }
 
 /**
- * Remove login/boot auto-start. Windows: delete the HKCU Run entry. POSIX:
- * `pm2 unstartup` (best-effort; may print a sudo command). Returns true if
- * removed or already absent.
+ * Remove login/boot auto-start. Windows: delete the per-tool HKCU Run entry.
+ *
+ * No-op off Windows — and deliberately so: pm2's `startup` integration is GLOBAL
+ * (one boot hook shared by every pm2 daemon on the host), so a single tool's
+ * uninstall must NOT `pm2 unstartup` and clobber the others. `pm2 delete` + the
+ * re-saved list already stop this daemon from being resurrected, which is the
+ * correct per-daemon teardown. Returns true if removed/absent (false off Windows).
  */
 export function disablePm2LoginAutostart(valueName: string): boolean {
-  if (process.platform !== "win32") {
-    const entry = pm2Entry();
-    if (!entry) return false;
-    return spawnSync(process.execPath, [entry, "unstartup"]).status === 0;
-  }
+  if (process.platform !== "win32") return false;
   const r = spawnSync("reg", ["delete", RUN_KEY, "/v", valueName, "/f"], { windowsHide: true });
   return r.status === 0 || /cannot find/i.test(String(r.stderr ?? ""));
 }
